@@ -1,157 +1,103 @@
-import java.util.ArrayList;
+import jarvis.controller.AssignmentController;
+import jarvis.dao.InMemoryAssignmentDAO;
+import jarvis.model.Assignment;
+import jarvis.service.AssignmentService;
+
+import java.util.List;
 import java.util.Scanner;
 
-class Assignment {
-    int id;
-    String subject;
-    String title;
-    String dueDate;
-    boolean completed;
-
-    // Constructor
-    Assignment(int id, String subject, String title, String dueDate) {
-        this.id = id;
-        this.subject = subject;
-        this.title = title;
-        this.dueDate = dueDate;
-        this.completed = false;
-    }
-
-    // Display assignment details
-    void display() {
-        System.out.println("-----------------------------");
-        System.out.println("ID: " + id);
-        System.out.println("Subject: " + subject);
-        System.out.println("Title: " + title);
-        System.out.println("Due Date: " + dueDate);
-        System.out.println("Status: " +
-                (completed ? "Completed" : "Pending"));
-    }
-}
-
+/**
+ * CLI bootstrap – wires Controller → Service → DAO and
+ * provides a text menu for quick local testing.
+ *
+ * <p>
+ * When Arvind's frontend is ready this class can be replaced
+ * by a Servlet or Spring Boot application class; the Controller,
+ * Service, and DAO layers stay untouched.
+ * </p>
+ */
 public class Main {
 
-    static ArrayList<Assignment> assignments =
-            new ArrayList<>();
-
-    static Scanner sc = new Scanner(System.in);
-
-    static int nextId = 1;
-
-    // Add assignment
-    static void addAssignment() {
-
-        System.out.print("Enter subject: ");
-        String subject = sc.nextLine();
-
-        System.out.print("Enter assignment title: ");
-        String title = sc.nextLine();
-
-        System.out.print("Enter due date: ");
-        String dueDate = sc.nextLine();
-
-        Assignment a = new Assignment(
-                nextId++, subject, title, dueDate
-        );
-
-        assignments.add(a);
-
-        System.out.println("Assignment added successfully!");
-    }
-
-    // View assignments
-    static void viewAssignments() {
-
-        if (assignments.isEmpty()) {
-            System.out.println("No assignments found.");
-            return;
-        }
-
-        for (Assignment a : assignments) {
-            a.display();
-        }
-    }
-
-    // Mark assignment completed
-    static void markCompleted() {
-
-        System.out.print("Enter assignment ID: ");
-        int id = sc.nextInt();
-        sc.nextLine();
-
-        for (Assignment a : assignments) {
-
-            if (a.id == id) {
-                a.completed = true;
-                System.out.println("Assignment marked as completed!");
-                return;
-            }
-        }
-
-        System.out.println("Assignment not found.");
-    }
-
-    // Delete assignment
-    static void deleteAssignment() {
-
-        System.out.print("Enter assignment ID: ");
-        int id = sc.nextInt();
-        sc.nextLine();
-
-        for (Assignment a : assignments) {
-
-            if (a.id == id) {
-                assignments.remove(a);
-                System.out.println("Assignment deleted!");
-                return;
-            }
-        }
-
-        System.out.println("Assignment not found.");
-    }
-
-    // Main method
     public static void main(String[] args) {
 
-        int choice;
+        // ── Assemble the backend stack ────────────────────────
+        InMemoryAssignmentDAO dao = new InMemoryAssignmentDAO();
+        AssignmentService service = new AssignmentService(dao);
+        AssignmentController ctrl = new AssignmentController(service);
+
+        Scanner sc = new Scanner(System.in);
+        int choice = 0;
 
         do {
-
-            System.out.println("\n===== ASSIGNMENT TRACKER =====");
+            System.out.println("\n===== JARVIS – ASSIGNMENT TRACKER =====");
             System.out.println("1. Add Assignment");
-            System.out.println("2. View Assignments");
+            System.out.println("2. View Assignments (priority-sorted)");
             System.out.println("3. Mark as Completed");
             System.out.println("4. Delete Assignment");
             System.out.println("5. Exit");
-
             System.out.print("Enter your choice: ");
-            choice = sc.nextInt();
-            sc.nextLine();
+
+            // Safely parse the menu choice
+            try {
+                choice = Integer.parseInt(sc.nextLine());
+            } catch (NumberFormatException e) {
+                System.out.println("Invalid input! Please enter a number between 1 and 5.");
+                continue; // Skip the switch statement and show the menu again
+            }
 
             switch (choice) {
-
                 case 1:
-                    addAssignment();
+                    System.out.print("Subject: ");
+                    String subject = sc.nextLine();
+
+                    System.out.print("Title: ");
+                    String title = sc.nextLine();
+
+                    System.out.print("Due date (yyyy-MM-dd): ");
+                    String dueDate = sc.nextLine();
+
+                    System.out.print("Difficulty (1-5): ");
+                    String diff = sc.nextLine();
+
+                    System.out.println(ctrl.createAssignment(subject, title, dueDate, diff));
                     break;
 
                 case 2:
-                    viewAssignments();
+                    List<Assignment> list = ctrl.listAssignments();
+                    if (list.isEmpty()) {
+                        System.out.println("No assignments found.");
+                    } else {
+                        list.forEach(System.out::println);
+                    }
                     break;
 
                 case 3:
-                    markCompleted();
+                    System.out.print("Enter assignment ID (number): ");
+                    try {
+                        int idToComplete = Integer.parseInt(sc.nextLine());
+                        System.out.println(ctrl.markCompleted(idToComplete));
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid input! You must enter the numeric ID (e.g., 1).");
+                    }
                     break;
 
                 case 4:
-                    deleteAssignment();
+                    System.out.print("Enter assignment ID (number): ");
+                    try {
+                        int idToDelete = Integer.parseInt(sc.nextLine());
+                        System.out.println(ctrl.deleteAssignment(idToDelete));
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid input! You must enter the numeric ID (e.g., 1).");
+                    }
                     break;
 
                 case 5:
-                    System.out.println("Thank you for using Assignment Tracker!");
+                    System.out.println("Thank you for using Jarvis – Assignment Tracker!");
                     break;
 
                 default:
                     System.out.println("Invalid choice. Try again.");
+                    break;
             }
 
         } while (choice != 5);

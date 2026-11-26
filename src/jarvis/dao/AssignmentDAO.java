@@ -5,8 +5,8 @@ import java.util.List;
 
 /**
  * Data-access contract.
- * Antariksh can swap in a JDBC / file-backed implementation later
- * without touching the service or controller layers.
+ * Implementations can be swapped without touching the service or
+ * controller layers.
  */
 public interface AssignmentDAO {
 

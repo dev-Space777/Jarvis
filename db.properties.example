@@ -1,0 +1,5 @@
+# Copy this file to db.properties and update the connection details.
+jdbc.url=jdbc:postgresql://localhost:5432/jarvis
+jdbc.username=postgres
+jdbc.password=change-me
+jdbc.driver=org.postgresql.Driver

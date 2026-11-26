@@ -1,5 +1,6 @@
 import jarvis.controller.AssignmentController;
-import jarvis.dao.InMemoryAssignmentDAO;
+import jarvis.dao.AssignmentDAO;
+import jarvis.dao.JdbcAssignmentDAO;
 import jarvis.model.Assignment;
 import jarvis.service.AssignmentService;
 
@@ -21,7 +22,7 @@ public class Main {
     public static void main(String[] args) {
 
         // ── Assemble the backend stack ────────────────────────
-        InMemoryAssignmentDAO dao = new InMemoryAssignmentDAO();
+        AssignmentDAO dao = new JdbcAssignmentDAO();
         AssignmentService service = new AssignmentService(dao);
         AssignmentController ctrl = new AssignmentController(service);
 

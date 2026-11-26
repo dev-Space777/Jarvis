@@ -7,9 +7,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Simple in-memory DAO backed by an ArrayList.
- * Acts as the default until Antariksh provides a database-backed
- * implementation of {@link AssignmentDAO}.
+ * Simple in-memory DAO backed by an ArrayList, useful for tests and
+ * temporary, non-persistent runs.
  */
 public class InMemoryAssignmentDAO implements AssignmentDAO {
 

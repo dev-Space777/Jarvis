@@ -23,20 +23,20 @@ import java.util.logging.Logger;
  * Loads JDBC settings once and creates connections on demand.
  * The configuration path can be overridden with {@code jarvis.db.config}.
  */
-public final class JdbcConnectionManager {
+public final class DatabaseConnection {
 
-    private static final JdbcConnectionManager INSTANCE = new JdbcConnectionManager();
+    private static final DatabaseConnection INSTANCE = new DatabaseConnection();
 
     private final Path configPath;
     private volatile Properties configuration;
     private volatile boolean driverRegistered;
 
-    private JdbcConnectionManager() {
+    private DatabaseConnection() {
         String configuredPath = System.getProperty("jarvis.db.config", "db.properties");
         configPath = Paths.get(configuredPath);
     }
 
-    public static JdbcConnectionManager getInstance() {
+    public static DatabaseConnection getInstance() {
         return INSTANCE;
     }
 

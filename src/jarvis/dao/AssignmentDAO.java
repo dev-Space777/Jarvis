@@ -24,4 +24,25 @@ public interface AssignmentDAO {
 
     /** Delete by id. Returns true if something was actually removed. */
     boolean delete(int id);
+
+    default int insertAssignment(Assignment assignment) {
+        return save(assignment);
+    }
+
+    default List<Assignment> getAllAssignments() {
+        return findAll();
+    }
+
+    default boolean updateStatus(int id, boolean status) {
+        Assignment assignment = findById(id);
+        if (assignment == null) {
+            return false;
+        }
+        assignment.setCompleted(status);
+        return update(assignment);
+    }
+
+    default boolean deleteAssignment(int id) {
+        return delete(id);
+    }
 }

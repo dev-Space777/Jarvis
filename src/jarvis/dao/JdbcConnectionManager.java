@@ -1,14 +1,23 @@
 package jarvis.dao;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
+import java.sql.Driver;
 import java.sql.DriverManager;
+import java.sql.DriverPropertyInfo;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.logging.Logger;
 
 /**
  * Loads JDBC settings once and creates connections on demand.
@@ -20,6 +29,7 @@ public final class JdbcConnectionManager {
 
     private final Path configPath;
     private volatile Properties configuration;
+    private volatile boolean driverRegistered;
 
     private JdbcConnectionManager() {
         String configuredPath = System.getProperty("jarvis.db.config", "db.properties");
@@ -34,12 +44,7 @@ public final class JdbcConnectionManager {
         Properties settings = getConfiguration();
         String driver = settings.getProperty("jdbc.driver");
         if (driver != null && !driver.trim().isEmpty()) {
-            try {
-                Class.forName(driver.trim());
-            } catch (ClassNotFoundException e) {
-                throw new IllegalStateException(
-                        "JDBC driver class '" + driver.trim() + "' was not found on the classpath.", e);
-            }
+            ensureDriverLoaded(driver.trim());
         }
 
         Properties connectionProperties = new Properties();
@@ -86,5 +91,110 @@ public final class JdbcConnectionManager {
         }
         loaded.setProperty("jdbc.url", url.trim());
         return loaded;
+    }
+
+    private void ensureDriverLoaded(String driverClassName) {
+        if (driverRegistered) {
+            return;
+        }
+        synchronized (this) {
+            if (driverRegistered) {
+                return;
+            }
+            try {
+                Class.forName(driverClassName);
+                driverRegistered = true;
+                return;
+            } catch (ClassNotFoundException ignored) {
+                // Fall back to loading JARs from local lib directories
+            }
+
+            List<URL> jarUrls = findLibJars();
+            if (!jarUrls.isEmpty()) {
+                try {
+                    URLClassLoader loader = new URLClassLoader(
+                            jarUrls.toArray(new URL[0]),
+                            JdbcConnectionManager.class.getClassLoader());
+                    Driver driver = (Driver) Class.forName(driverClassName, true, loader)
+                            .getDeclaredConstructor()
+                            .newInstance();
+                    DriverManager.registerDriver(new DriverShim(driver));
+                    driverRegistered = true;
+                    return;
+                } catch (Exception e) {
+                    throw new IllegalStateException(
+                            "Failed to load JDBC driver '" + driverClassName + "' from local lib JARs.", e);
+                }
+            }
+
+            throw new IllegalStateException(
+                    "JDBC driver class '" + driverClassName + "' was not found on the classpath or in src/jarvis/lib.");
+        }
+    }
+
+    private static List<URL> findLibJars() {
+        List<URL> urls = new ArrayList<>();
+        File[] candidates = { new File("src/jarvis/lib"), new File("lib") };
+        for (File dir : candidates) {
+            if (dir.isDirectory()) {
+                File[] files = dir.listFiles((d, name) -> name.endsWith(".jar"));
+                if (files != null) {
+                    for (File file : files) {
+                        try {
+                            urls.add(file.toURI().toURL());
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+            }
+        }
+        return urls;
+    }
+
+    /**
+     * Wraps a {@link Driver} loaded from a child {@link URLClassLoader} so
+     * {@link DriverManager} accepts it when the JAR is not on the system classpath.
+     */
+    private static final class DriverShim implements Driver {
+        private final Driver delegate;
+
+        DriverShim(Driver delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Connection connect(String url, Properties info) throws SQLException {
+            return delegate.connect(url, info);
+        }
+
+        @Override
+        public boolean acceptsURL(String url) throws SQLException {
+            return delegate.acceptsURL(url);
+        }
+
+        @Override
+        public DriverPropertyInfo[] getPropertyInfo(String url, Properties info) throws SQLException {
+            return delegate.getPropertyInfo(url, info);
+        }
+
+        @Override
+        public int getMajorVersion() {
+            return delegate.getMajorVersion();
+        }
+
+        @Override
+        public int getMinorVersion() {
+            return delegate.getMinorVersion();
+        }
+
+        @Override
+        public boolean jdbcCompliant() {
+            return delegate.jdbcCompliant();
+        }
+
+        @Override
+        public Logger getParentLogger() throws SQLFeatureNotSupportedException {
+            return delegate.getParentLogger();
+        }
     }
 }

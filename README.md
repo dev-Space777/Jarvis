@@ -5,7 +5,8 @@ Assignment tracker project using a PostgreSQL-backed JDBC DAO.
 ## Database setup
 
 1. Create a PostgreSQL database named `jarvis` (or update the JDBC URL below).
-2. Apply [`schema/postgresql.sql`](schema/postgresql.sql) to that database.
+2. Apply [`schema/postgresql.sql`](schema/postgresql.sql) to that database. It
+   creates the assignments table and indexes due dates and completion status.
 3. Copy `db.properties.example` to `db.properties` and set `jdbc.url`,
    `jdbc.username`, and `jdbc.password`. The local configuration file is ignored
    by Git. You can use another configuration path with the

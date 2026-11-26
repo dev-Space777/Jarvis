@@ -114,6 +114,12 @@ public class JdbcAssignmentDAO implements AssignmentDAO {
         return save(assignment);
     }
 
+    @Override
+    public int insertAssignment(Assignment assignment) {
+        return save(assignment);
+    }
+
+    @Override
     public List<Assignment> getAllAssignments() {
         return findAll();
     }
@@ -126,6 +132,20 @@ public class JdbcAssignmentDAO implements AssignmentDAO {
         return update(assignment);
     }
 
+    @Override
+    public boolean updateStatus(int id, boolean status) {
+        String sql = "UPDATE assignments SET completed = ? WHERE id = ?";
+        try (Connection connection = connectionManager.getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setBoolean(1, status);
+            statement.setInt(2, id);
+            return statement.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new AssignmentPersistenceException("update assignment status", e);
+        }
+    }
+
+    @Override
     public boolean deleteAssignment(int id) {
         return delete(id);
     }

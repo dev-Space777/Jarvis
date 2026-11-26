@@ -7,3 +7,9 @@ CREATE TABLE IF NOT EXISTS assignments (
     priority_score DOUBLE PRECISION NOT NULL DEFAULT 0,
     completed BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE INDEX IF NOT EXISTS idx_assignments_due_date
+    ON assignments (due_date);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_completed
+    ON assignments (completed);

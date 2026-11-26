@@ -19,18 +19,18 @@ import java.util.List;
 public class JdbcAssignmentDAO implements AssignmentDAO {
 
     private static final String INSERT =
-            "INSERT INTO assignments (subject, title, due_date, difficulty_level, priority_score, completed) "
+            "INSERT INTO assignments (subject, title, due_date, difficulty_level, priority_score, is_completed) "
                     + "VALUES (?, ?, ?, ?, ?, ?)";
     private static final String SELECT_COLUMNS =
-            "id, subject, title, due_date, difficulty_level, priority_score, completed";
+            "id, subject, title, due_date, difficulty_level, priority_score, is_completed";
 
-    private final JdbcConnectionManager connectionManager;
+    private final DatabaseConnection connectionManager;
 
     public JdbcAssignmentDAO() {
-        this(JdbcConnectionManager.getInstance());
+        this(DatabaseConnection.getInstance());
     }
 
-    JdbcAssignmentDAO(JdbcConnectionManager connectionManager) {
+    JdbcAssignmentDAO(DatabaseConnection connectionManager) {
         this.connectionManager = connectionManager;
     }
 
@@ -87,7 +87,7 @@ public class JdbcAssignmentDAO implements AssignmentDAO {
     @Override
     public boolean update(Assignment assignment) {
         String sql = "UPDATE assignments SET subject = ?, title = ?, due_date = ?, "
-                + "difficulty_level = ?, priority_score = ?, completed = ? WHERE id = ?";
+                + "difficulty_level = ?, priority_score = ?, is_completed = ? WHERE id = ?";
         try (Connection connection = connectionManager.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             bindAssignment(statement, assignment, 1);
@@ -134,7 +134,7 @@ public class JdbcAssignmentDAO implements AssignmentDAO {
 
     @Override
     public boolean updateStatus(int id, boolean status) {
-        String sql = "UPDATE assignments SET completed = ? WHERE id = ?";
+        String sql = "UPDATE assignments SET is_completed = ? WHERE id = ?";
         try (Connection connection = connectionManager.getConnection();
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setBoolean(1, status);
@@ -168,7 +168,7 @@ public class JdbcAssignmentDAO implements AssignmentDAO {
                 results.getDate("due_date").toLocalDate(),
                 results.getInt("difficulty_level"));
         assignment.setPriorityScore(results.getDouble("priority_score"));
-        assignment.setCompleted(results.getBoolean("completed"));
+        assignment.setCompleted(results.getBoolean("is_completed"));
         return assignment;
     }
 }

@@ -114,7 +114,7 @@ public final class DatabaseConnection {
                 try {
                     URLClassLoader loader = new URLClassLoader(
                             jarUrls.toArray(new URL[0]),
-                            JdbcConnectionManager.class.getClassLoader());
+                            DatabaseConnection.class.getClassLoader());
                     Driver driver = (Driver) Class.forName(driverClassName, true, loader)
                             .getDeclaredConstructor()
                             .newInstance();

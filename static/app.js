@@ -1,6 +1,20 @@
 import { mountAddAssignmentForm } from "./components/AddAssignmentForm.js";
+import { JarvisApiService, BackendError } from "./services/JarvisApiService.js";
 
-const API_BASE = "/api/assignments";
+/** Base URL of the Jarvis Java HTTP backend. */
+const API_BASE_URL = "http://localhost:8080";
+
+/** Shared API client. api.loadingState drives the loading UI below. */
+const api = new JarvisApiService(API_BASE_URL);
+
+/** Java priorityScore (0.0 – 1.0+) -> dashboard scale (1 – 10). */
+const JAVA_SCORE_TO_UI_SCALE = 10;
+
+const OFFLINE_MESSAGE =
+  `Jarvis backend is offline: the Java HTTP server isn't responding at ${API_BASE_URL}. ` +
+  "Start it, then press Refresh.";
+const TIMEOUT_MESSAGE =
+  `Jarvis backend at ${API_BASE_URL} timed out. It may still be starting up. Try again in a moment.`;
 
 const state = {
   assignments: [],
@@ -11,6 +25,7 @@ const state = {
   sortKey: "priority_score",
   sortDir: "desc",
   viewMode: "table",
+  backendOnline: null, // null = unknown yet, true = reachable, false = offline
 };
 
 const els = {
@@ -45,14 +60,30 @@ const els = {
   toastContainer: document.getElementById("toastContainer"),
 };
 
+// The Refresh button is "<svg> Refresh". Remember its text node so we can swap
+// the label to "Syncing..." without destroying the icon.
+const refreshLabelNode = Array.from(els.refreshBtn.childNodes)
+  .reverse()
+  .find((n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+const refreshLabelDefault = refreshLabelNode ? refreshLabelNode.textContent : "";
+
 /** Normalize an assignment object regardless of snake_case / camelCase backend keys. */
 function normalizeItem(raw) {
-  const rawScore = Number(
-    raw.priority_score ?? raw.priorityScore ?? raw["Priority Score"] ?? 5
-  );
+  // priority_score is already 1-10 (the service converts it). A raw Java
+  // `priorityScore` (0.0 - 1.0+) is scaled up to the dashboard's 1-10 range.
+  const rawScore =
+    raw.priority_score != null
+      ? Number(raw.priority_score)
+      : raw.priorityScore != null
+        ? Number(raw.priorityScore) * JAVA_SCORE_TO_UI_SCALE
+        : raw["Priority Score"] != null
+          ? Number(raw["Priority Score"])
+          : 5;
   const clampedScore = Number.isFinite(rawScore)
     ? Math.max(1, Math.min(10, Math.round(rawScore)))
     : 5;
+
+  const rawDifficulty = Number(raw.difficulty_level ?? raw.difficultyLevel);
 
   const rawStatus = String(raw.status ?? raw.Status ?? "Not Started").trim();
   const lowered = rawStatus.toLowerCase();
@@ -62,10 +93,12 @@ function normalizeItem(raw) {
 
   return {
     id: String(raw.id ?? raw.ID ?? "").trim(),
+    _jarvisId: raw._jarvisId ?? null,
     subject: String(raw.subject ?? raw.Subject ?? "").trim(),
     title: String(raw.title ?? raw.Title ?? "").trim(),
     due_date: String(raw.due_date ?? raw.dueDate ?? raw["Due Date"] ?? "").trim(),
-    priority_score: clampedScore,
+    difficulty_level: Number.isFinite(rawDifficulty) ? rawDifficulty : null, // 1-5 (backend scale)
+    priority_score: clampedScore,                                            // 1-10 (display scale)
     status: normalizedStatus,
   };
 }
@@ -104,20 +137,74 @@ function getPriorityTier(score) {
   return { key: "low", label: "Low", pillClass: "priority-low", fillClass: "fill-low" };
 }
 
-function showToast(message, isError = false) {
+function showToast(message, isError = false, durationMs = 3000) {
   const toast = document.createElement("div");
   toast.className = `toast${isError ? " toast-error" : ""}`;
   toast.textContent = message;
   els.toastContainer.appendChild(toast);
   setTimeout(() => {
     toast.remove();
-  }, 3000);
+  }, durationMs);
 }
 
-function setSyncStatus(ok, label) {
+function setSyncStatus(ok, label, tooltip) {
   els.backendStatus.classList.toggle("error", !ok);
   const textNode = els.backendStatus.querySelector(".sync-text");
   if (textNode) textNode.textContent = label;
+  if (tooltip) els.backendStatus.title = tooltip;
+}
+
+/** Single source of truth for the sync pill in the header. */
+function renderSyncStatus() {
+  if (api.loadingState.isLoading) {
+    setSyncStatus(true, "Syncing...", `Talking to ${API_BASE_URL}`);
+  } else if (state.backendOnline === false) {
+    setSyncStatus(false, "Backend offline", `Cannot reach the Java backend at ${API_BASE_URL}`);
+  } else if (state.backendOnline === true) {
+    setSyncStatus(true, `Synced (${state.assignments.length})`, `Connected to ${API_BASE_URL}`);
+  } else {
+    setSyncStatus(true, "Connecting...", `Backend API status (${API_BASE_URL})`);
+  }
+}
+
+function setBackendOnline(isOnline) {
+  state.backendOnline = isOnline;
+  renderSyncStatus();
+}
+
+/**
+ * Translate an error from JarvisApiService into a UI message and update the
+ * sync pill. Returns { offline, message } so callers decide how to surface it.
+ */
+function handleApiError(err) {
+  if (err instanceof BackendError) {
+    if (err.code === "NETWORK_ERROR") {
+      setBackendOnline(false);
+      return { offline: true, message: OFFLINE_MESSAGE };
+    }
+    if (err.code === "TIMEOUT") {
+      setBackendOnline(false);
+      return { offline: true, message: TIMEOUT_MESSAGE };
+    }
+    if (err.code === "HTTP_ERROR" || err.code === "PARSE_ERROR") {
+      // The server answered, so it is reachable even though the request failed.
+      setBackendOnline(true);
+    } else {
+      renderSyncStatus();
+    }
+    return { offline: false, message: err.message };
+  }
+  renderSyncStatus();
+  return { offline: false, message: err?.message || "Unknown error" };
+}
+
+/** Loading state is shared by every request, so only one runs at a time. */
+function ensureIdle() {
+  if (api.loadingState.isLoading) {
+    showToast("Please wait, another request is still in progress.", true);
+    return false;
+  }
+  return true;
 }
 
 /** Load an array of assignment objects into dashboard state and re-render. */
@@ -131,95 +218,135 @@ function setAssignmentsFromArray(jsonArray) {
 }
 
 async function fetchAssignments() {
+  if (api.loadingState.isLoading) return;
   try {
-    setSyncStatus(true, "Syncing...");
-    const response = await fetch(API_BASE, { headers: { Accept: "application/json" } });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const payload = await response.json();
-    setAssignmentsFromArray(payload);
-    setSyncStatus(true, `Synced (${state.assignments.length})`);
+    const assignments = await api.fetchAssignments();
+    setAssignmentsFromArray(assignments);
+    setBackendOnline(true);
   } catch (err) {
-    setSyncStatus(false, "Backend offline");
-    showToast(`Failed to load assignments: ${err.message}`, true);
+    const { offline, message } = handleApiError(err);
+    showToast(
+      offline ? message : `Failed to load assignments: ${message}`,
+      true,
+      offline ? 6000 : 3000
+    );
   }
 }
 
 async function markAssignmentComplete(id) {
+  if (!ensureIdle()) return;
   try {
-    const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "Completed" }),
-    });
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}));
-      throw new Error(errBody.error || `HTTP ${response.status}`);
-    }
-    const updated = normalizeItem(await response.json());
+    await api.completeAssignment(id);
     state.assignments = state.assignments.map((item) =>
-      item.id === id ? updated : item
+      item.id === id ? { ...item, status: "Completed" } : item
     );
     renderAll();
-    setSyncStatus(true, `Synced (${state.assignments.length})`);
+    setBackendOnline(true);
     showToast(`Marked ${id} as Completed`);
   } catch (err) {
-    showToast(`Could not complete ${id}: ${err.message}`, true);
+    const { offline, message } = handleApiError(err);
+    showToast(offline ? message : `Could not complete ${id}: ${message}`, true, offline ? 6000 : 3000);
   }
 }
 
 async function deleteAssignment(id) {
+  if (!ensureIdle()) return;
   try {
-    const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}));
-      throw new Error(errBody.error || `HTTP ${response.status}`);
-    }
+    await api.deleteAssignment(id);
     state.assignments = state.assignments.filter((item) => item.id !== id);
     populateSubjectOptions();
     renderAll();
-    setSyncStatus(true, `Synced (${state.assignments.length})`);
+    setBackendOnline(true);
     showToast(`Deleted assignment ${id}`);
   } catch (err) {
-    showToast(`Could not delete ${id}: ${err.message}`, true);
+    const { offline, message } = handleApiError(err);
+    showToast(offline ? message : `Could not delete ${id}: ${message}`, true, offline ? 6000 : 3000);
   }
 }
 
+/**
+ * Called by AddAssignmentForm. Errors are re-thrown so the form can show them
+ * (it calls onError -> showToast) and keep the user's input.
+ */
 async function createAssignment(payload) {
-  const response = await fetch(API_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const errBody = await response.json().catch(() => ({}));
-    throw new Error(errBody.error || `HTTP ${response.status}`);
+  if (api.loadingState.isLoading) {
+    throw new Error("Please wait, another request is still in progress.");
   }
-  const created = normalizeItem(await response.json());
-  state.assignments.push(created);
-  populateSubjectOptions();
-  renderAll();
-  setSyncStatus(true, `Synced (${state.assignments.length})`);
-  showToast(`Added ${created.id}`);
+  let created;
+  try {
+    created = await api.addAssignment(payload);
+  } catch (err) {
+    const { message } = handleApiError(err);
+    throw new Error(message);
+  }
+  setBackendOnline(true);
+
+  if (created && !state.assignments.some((a) => a.id === created.id)) {
+    state.assignments.push(normalizeItem(created));
+    populateSubjectOptions();
+    renderAll();
+  } else {
+    // Server accepted it but we couldn't pinpoint the new row: reload the list.
+    await fetchAssignments();
+  }
+  showToast(`Added ${created?.id ?? "assignment"}`);
 }
 
+/**
+ * NOTE: JarvisApiService has no bulk-import method and the Java backend does
+ * not document a POST /api/assignments/import endpoint yet, so this keeps the
+ * original request but targets the Java backend and reports offline clearly.
+ */
 async function importAssignmentsJson(itemsArray, mode) {
-  const response = await fetch(`${API_BASE}/import`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assignments: itemsArray, mode }),
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/assignments/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignments: itemsArray, mode }),
+    });
+  } catch (_err) {
+    setBackendOnline(false);
+    throw new Error(OFFLINE_MESSAGE);
+  }
   if (!response.ok) {
     const errBody = await response.json().catch(() => ({}));
     throw new Error(errBody.error || `HTTP ${response.status}`);
   }
   const updatedList = await response.json();
   setAssignmentsFromArray(updatedList);
-  setSyncStatus(true, `Synced (${state.assignments.length})`);
+  setBackendOnline(true);
   showToast(`Loaded ${updatedList.length} assignments from JSON`);
+}
+
+/**
+ * Reflect api.loadingState in the UI: "Syncing..." on Refresh and the sync
+ * pill, and disable every action button while a request is in flight.
+ */
+function applyLoadingUI({ isLoading }) {
+  const busy = Boolean(isLoading);
+
+  if (refreshLabelNode) {
+    refreshLabelNode.textContent = busy ? " Syncing..." : refreshLabelDefault;
+  }
+  els.refreshBtn.disabled = busy;
+  els.refreshBtn.setAttribute("aria-busy", String(busy));
+  els.importJsonBtn.disabled = busy;
+  els.tableWrapper.setAttribute("aria-busy", String(busy));
+
+  document.querySelectorAll(".btn-complete").forEach((btn) => {
+    btn.disabled = busy || btn.classList.contains("is-done");
+  });
+  document.querySelectorAll(".btn-delete").forEach((btn) => {
+    btn.disabled = busy;
+  });
+
+  const formSubmit = els.addAssignmentMount.querySelector("#addFormSubmitBtn");
+  const formReset = els.addAssignmentMount.querySelector("#addFormResetBtn");
+  if (formSubmit) formSubmit.disabled = busy;
+  if (formReset) formReset.disabled = busy;
+
+  renderSyncStatus();
 }
 
 function populateSubjectOptions() {
@@ -358,6 +485,7 @@ function buildRowElement(item) {
   const completed = isCompleted(item);
   const overdue = isOverdue(item);
   const tier = getPriorityTier(item.priority_score);
+  const busy = api.loadingState.isLoading;
 
   if (completed) {
     tr.classList.add("row-completed");
@@ -465,7 +593,7 @@ function buildRowElement(item) {
   }
   tdStatus.appendChild(statusStack);
 
-  // 7. Actions ('Mark Complete' and 'Delete')
+  // 7. Actions ('Mark Complete' and 'Delete'), disabled while a request is in flight
   const tdActions = document.createElement("td");
   tdActions.dataset.label = "Actions";
   const actionsWrap = document.createElement("div");
@@ -475,7 +603,7 @@ function buildRowElement(item) {
   completeBtn.type = "button";
   completeBtn.className = `btn btn-sm btn-complete${completed ? " is-done" : ""}`;
   completeBtn.textContent = completed ? "✓ Completed" : "Mark Complete";
-  completeBtn.disabled = completed;
+  completeBtn.disabled = completed || busy;
   completeBtn.setAttribute("aria-label", `Mark Complete ${item.id}`);
   completeBtn.addEventListener("click", () => markAssignmentComplete(item.id));
 
@@ -483,6 +611,7 @@ function buildRowElement(item) {
   deleteBtn.type = "button";
   deleteBtn.className = "btn btn-sm btn-delete";
   deleteBtn.textContent = "Delete";
+  deleteBtn.disabled = busy;
   deleteBtn.setAttribute("aria-label", `Delete ${item.id}`);
   deleteBtn.addEventListener("click", () => deleteAssignment(item.id));
 
@@ -578,7 +707,7 @@ function bindEvents() {
   els.tableViewBtn.addEventListener("click", () => setViewMode("table"));
   els.gridViewBtn.addEventListener("click", () => setViewMode("grid"));
   els.themeToggleBtn.addEventListener("click", toggleTheme);
-  els.refreshBtn.addEventListener("click", fetchAssignments);
+  els.refreshBtn.addEventListener("click", () => fetchAssignments());
 
   document.querySelectorAll("th.sortable").forEach((th) => {
     const handleSort = () => {
@@ -634,7 +763,7 @@ function bindEvents() {
   const addFormComponent = mountAddAssignmentForm(els.addAssignmentMount, {
     getTodayIsoDate,
     onCreate: createAssignment,
-    onError: (msg) => showToast(msg, true),
+    onError: (msg) => showToast(msg, true, 6000),
   });
   els.addAssignmentBtn.addEventListener("click", () => addFormComponent.focus());
   els.emptyAddBtn.addEventListener("click", () => addFormComponent.focus());
@@ -649,6 +778,7 @@ function bindEvents() {
   els.jsonForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     els.jsonErrorMsg.classList.add("hidden");
+    const applyBtn = els.jsonForm.querySelector('button[type="submit"]');
     try {
       const parsed = JSON.parse(els.jsonTextarea.value);
       if (!Array.isArray(parsed)) {
@@ -656,11 +786,14 @@ function bindEvents() {
       }
       const modeInput = els.jsonForm.querySelector('input[name="importMode"]:checked');
       const mode = modeInput ? modeInput.value : "replace";
+      if (applyBtn) applyBtn.disabled = true;
       await importAssignmentsJson(parsed, mode);
       els.jsonModal.close();
     } catch (err) {
       els.jsonErrorMsg.textContent = err.message;
       els.jsonErrorMsg.classList.remove("hidden");
+    } finally {
+      if (applyBtn) applyBtn.disabled = false;
     }
   });
 
@@ -675,9 +808,11 @@ function bindEvents() {
 // Expose programmatic hook for external backend JSON array injection if needed.
 window.AssignmentTracker = {
   loadAssignments: setAssignmentsFromArray,
-  refresh: fetchAssignments,
+  refresh: () => fetchAssignments(),
 };
 
 initTheme();
 bindEvents();
+api.loadingState.subscribe(applyLoadingUI);
+applyLoadingUI({ isLoading: false });
 fetchAssignments();

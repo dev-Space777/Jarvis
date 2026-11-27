@@ -1,21 +1,39 @@
 /**
  * Reusable Add Assignment form component.
  * Renders fields for Subject, Title, Due Date (YYYY-MM-DD, no past dates),
- * and Difficulty Level (1-5), validates before submit, and invokes onCreate.
+ * and Difficulty Level (1-5, matching the Java backend), validates before
+ * submit, and invokes onCreate.
+ *
+ * Difficulty vs. priority:
+ *   - The form collects difficulty on the backend's 1-5 scale.
+ *   - The dashboard displays priority on a 1-10 scale.
+ *   - `difficultyToPriorityScore()` gives a clean 1-5 -> 2-10 estimate
+ *     (difficulty x 2) that is included in the payload as `priority_score`.
+ *     The authoritative score shown after creation comes from the Java
+ *     backend (urgency + difficulty), see README.md.
  */
 
+export const DIFFICULTY_MIN = 1;
+export const DIFFICULTY_MAX = 5;
+
 const DIFFICULTY_OPTIONS = [
-  { value: "1",  label: "1 – Very Easy" },
-  { value: "2",  label: "2 – Easy" },
-  { value: "3",  label: "3 – Moderate" },
-  { value: "4",  label: "4 – Hard" },
-  { value: "5",  label: "5 – Challenging" },
-  { value: "6",  label: "6 – Very Hard" },
-  { value: "7",  label: "7 – Demanding" },
-  { value: "8",  label: "8 – Intense" },
-  { value: "9",  label: "9 – Expert" },
-  { value: "10", label: "10 – Extreme" },
+  { value: "1", label: "1 – Very Easy" },
+  { value: "2", label: "2 – Easy" },
+  { value: "3", label: "3 – Moderate" },
+  { value: "4", label: "4 – Hard" },
+  { value: "5", label: "5 – Challenging" },
 ];
+
+/**
+ * Map a backend difficulty (1-5) onto the dashboard's 1-10 priority scale.
+ * 1 -> 2, 2 -> 4, 3 -> 6, 4 -> 8, 5 -> 10
+ */
+export function difficultyToPriorityScore(difficulty) {
+  const n = Number(difficulty);
+  if (!Number.isInteger(n)) return null;
+  const clamped = Math.max(DIFFICULTY_MIN, Math.min(DIFFICULTY_MAX, n));
+  return clamped * 2;
+}
 
 export function isValidIsoDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -53,9 +71,13 @@ export function validateAssignmentFormValues(values, todayIso) {
 
   const difficultyNum = Number(difficultyRaw);
   if (!difficultyRaw) {
-    errors.difficulty_level = "Please select a Difficulty Level (1 – 10).";
-  } else if (!Number.isInteger(difficultyNum) || difficultyNum < 1 || difficultyNum > 10) {
-    errors.difficulty_level = "Difficulty Level must be between 1 and 10.";
+    errors.difficulty_level = `Please select a Difficulty Level (${DIFFICULTY_MIN} – ${DIFFICULTY_MAX}).`;
+  } else if (
+    !Number.isInteger(difficultyNum) ||
+    difficultyNum < DIFFICULTY_MIN ||
+    difficultyNum > DIFFICULTY_MAX
+  ) {
+    errors.difficulty_level = `Difficulty Level must be between ${DIFFICULTY_MIN} and ${DIFFICULTY_MAX}.`;
   }
 
   return {
@@ -65,8 +87,8 @@ export function validateAssignmentFormValues(values, todayIso) {
       subject,
       title,
       due_date: dueDate,
-      difficulty_level: difficultyNum,
-      priority_score: difficultyNum,   // 1-10 maps directly to 1-10
+      difficulty_level: difficultyNum,                              // 1-5 (sent to Java as difficultyLevel)
+      priority_score: difficultyToPriorityScore(difficultyNum),     // 2-10 display estimate
       status: "Not Started",
     },
   };
@@ -83,7 +105,7 @@ export function mountAddAssignmentForm(container, { getTodayIsoDate, onCreate, o
     <div class="add-form-header">
       <div>
         <h2 class="add-form-title">New Assignment</h2>
-        <p class="add-form-subtitle">Difficulty (1–10) sets Priority Score directly.</p>
+        <p class="add-form-subtitle">Difficulty (1–5) is sent to the backend, which calculates the Priority Score (shown as 1–10).</p>
       </div>
     </div>
     <form id="addAssignmentForm" class="add-form" novalidate>
@@ -114,9 +136,9 @@ export function mountAddAssignmentForm(container, { getTodayIsoDate, onCreate, o
 
         <div class="field-group" data-field="difficulty_level">
           <label class="field" for="formDifficulty">
-            <span>Difficulty / Priority (1–10) *</span>
+            <span>Difficulty Level (${DIFFICULTY_MIN}–${DIFFICULTY_MAX}) *</span>
             <select id="formDifficulty" name="difficulty_level" required>
-              <option value="">Select level (1–10)</option>
+              <option value="">Select level (${DIFFICULTY_MIN}–${DIFFICULTY_MAX})</option>
               ${DIFFICULTY_OPTIONS.map((opt) => `<option value="${opt.value}">${opt.label}</option>`).join("")}
             </select>
           </label>
@@ -138,6 +160,7 @@ export function mountAddAssignmentForm(container, { getTodayIsoDate, onCreate, o
   const difficultySelect = container.querySelector("#formDifficulty");
   const submitBtn = container.querySelector("#addFormSubmitBtn");
   const resetBtn = container.querySelector("#addFormResetBtn");
+  const submitLabel = submitBtn.textContent; // restore the original label after submit
 
   const fieldInputs = {
     subject: subjectInput,
@@ -231,7 +254,7 @@ export function mountAddAssignmentForm(container, { getTodayIsoDate, onCreate, o
       }
     } finally {
       submitBtn.disabled = false;
-      submitBtn.textContent = "+ Add Assignment";
+      submitBtn.textContent = submitLabel;
     }
   });
 

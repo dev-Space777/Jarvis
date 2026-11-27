@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assignment Tracker Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 11l3 3L22 4"></path>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+          </svg>
+        </div>
+        <div>
+          <h1>Assignment Tracker</h1>
+          <p class="subtitle">Monitor deadlines, priority scores, and completion status</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <span id="backendStatus" class="sync-pill" title="Backend API status">
+          <span class="sync-dot"></span>
+          <span class="sync-text">Synced with API</span>
+        </span>
+        <button id="themeToggleBtn" class="btn btn-ghost" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">
+          <svg id="themeIconSun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+        <button id="refreshBtn" class="btn btn-secondary" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+          Refresh
+        </button>
+        <button id="importJsonBtn" class="btn btn-secondary" type="button">Load JSON</button>
+        <button id="addAssignmentBtn" class="btn btn-primary" type="button">+ New Assignment</button>
+      </div>
+    </header>
+
+    <!-- KPI Summary Strip -->
+    <section class="kpi-grid" aria-label="Assignment summary metrics">
+      <button class="kpi-card kpi-total" type="button" data-quick-filter="all">
+        <span class="kpi-label">Total Assignments</span>
+        <strong id="kpiTotal" class="kpi-value">0</strong>
+        <span class="kpi-hint">All tracked tasks</span>
+      </button>
+      <button class="kpi-card kpi-overdue" type="button" data-quick-filter="overdue">
+        <span class="kpi-label">Overdue</span>
+        <strong id="kpiOverdue" class="kpi-value">0</strong>
+        <span class="kpi-hint">Past due date &amp; active</span>
+      </button>
+      <button class="kpi-card kpi-high" type="button" data-quick-filter="high">
+        <span class="kpi-label">High Priority (8-10)</span>
+        <strong id="kpiHighPriority" class="kpi-value">0</strong>
+        <span class="kpi-hint">Active critical score</span>
+      </button>
+      <button class="kpi-card kpi-pending" type="button" data-quick-filter="active">
+        <span class="kpi-label">Active / Not Started</span>
+        <strong id="kpiPending" class="kpi-value">0</strong>
+        <span class="kpi-hint">Remaining to finish</span>
+      </button>
+      <button class="kpi-card kpi-completed" type="button" data-quick-filter="completed">
+        <span class="kpi-label">Completed</span>
+        <strong id="kpiCompleted" class="kpi-value">0</strong>
+        <span class="kpi-hint">Marked complete</span>
+      </button>
+    </section>
+
+    <!-- Add Assignment Form Component -->
+    <section id="addAssignmentMount" class="panel add-form-panel" aria-label="Add new assignment"></section>
+
+    <!-- Legend & Filter Controls -->
+    <section class="panel controls-panel" aria-label="Filters and view controls">
+      <div class="controls-row">
+        <div class="search-wrap">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input id="searchInput" type="search" placeholder="Search by ID, subject, or title..." aria-label="Search assignments">
+        </div>
+
+        <div class="filter-group">
+          <select id="subjectFilter" aria-label="Filter by subject">
+            <option value="all">All Subjects</option>
+          </select>
+
+          <select id="statusFilter" aria-label="Filter by status">
+            <option value="all">All Statuses</option>
+            <option value="overdue">Overdue Only</option>
+            <option value="active">Active (Not Started / In Progress)</option>
+            <option value="Not Started">Not Started</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+
+          <select id="priorityFilter" aria-label="Filter by priority">
+            <option value="all">All Priorities</option>
+            <option value="high">High (8 - 10)</option>
+            <option value="medium">Medium (5 - 7)</option>
+            <option value="low">Low (1 - 4)</option>
+          </select>
+
+          <button id="clearFiltersBtn" class="btn btn-ghost btn-sm" type="button">Reset</button>
+        </div>
+
+        <div class="view-toggle" role="group" aria-label="Layout toggle">
+          <button id="tableViewBtn" class="view-btn active" type="button" data-view="table" title="Table view">Table</button>
+          <button id="gridViewBtn" class="view-btn" type="button" data-view="grid" title="Card grid view">Grid</button>
+        </div>
+      </div>
+
+      <div class="legend-bar">
+        <div class="legend-items">
+          <span class="legend-chip"><span class="swatch swatch-overdue"></span> Overdue</span>
+          <span class="legend-chip"><span class="swatch swatch-high"></span> High Priority (8-10)</span>
+          <span class="legend-chip"><span class="swatch swatch-medium"></span> Medium Priority (5-7)</span>
+          <span class="legend-chip"><span class="swatch swatch-low"></span> Low Priority (1-4)</span>
+          <span class="legend-chip"><span class="swatch swatch-pending"></span> Not Started</span>
+          <span class="legend-chip"><span class="swatch swatch-progress"></span> In Progress</span>
+          <span class="legend-chip"><span class="swatch swatch-done"></span> Completed</span>
+        </div>
+        <span id="visibleCountLabel" class="count-label">Showing 0 assignments</span>
+      </div>
+    </section>
+
+    <!-- Main Data Table / Responsive Card Grid -->
+    <main class="panel table-panel">
+      <div id="tableWrapper" class="table-wrapper view-table">
+        <table id="assignmentsTable" class="assignments-table">
+          <thead>
+            <tr>
+              <th data-sort="id" class="sortable" tabindex="0">ID <span class="sort-ind"></span></th>
+              <th data-sort="subject" class="sortable" tabindex="0">Subject <span class="sort-ind"></span></th>
+              <th data-sort="title" class="sortable" tabindex="0">Title <span class="sort-ind"></span></th>
+              <th data-sort="due_date" class="sortable" tabindex="0">Due Date <span class="sort-ind"></span></th>
+              <th data-sort="days_left" class="sortable" tabindex="0">Days Left <span class="sort-ind"></span></th>
+              <th data-sort="priority_score" class="sortable" tabindex="0">Priority Score <span class="sort-ind"></span></th>
+              <th data-sort="status" class="sortable" tabindex="0">Status <span class="sort-ind"></span></th>
+              <th class="actions-col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="assignmentsBody">
+            <!-- Rows injected dynamically from backend JSON -->
+          </tbody>
+        </table>
+      </div>
+
+      <div id="emptyState" class="empty-state hidden">
+        <div class="empty-icon" aria-hidden="true">📋</div>
+        <h3>No matching assignments</h3>
+        <p>Try adjusting your search or filter criteria, add a new assignment, or load a JSON array from the backend.</p>
+        <div class="empty-actions">
+          <button id="emptyResetBtn" class="btn btn-secondary" type="button">Clear Filters</button>
+          <button id="emptyAddBtn" class="btn btn-primary" type="button">+ New Assignment</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Load / Inspect Backend JSON Array Modal -->
+  <dialog id="jsonModal" class="modal">
+    <form id="jsonImportForm" class="modal-card modal-card-wide" method="dialog">
+      <div class="modal-header">
+        <h2>Backend JSON Array Payload</h2>
+        <button type="button" class="icon-close" data-close-modal="jsonModal" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Inspect the live JSON array from <code>GET /api/assignments</code> or paste a custom JSON array below to push to <code>POST /api/assignments/import</code>.
+        </p>
+        <textarea id="jsonTextarea" class="json-editor" rows="12" spellcheck="false" aria-label="Assignments JSON array"></textarea>
+        <div class="import-options">
+          <label class="radio-opt">
+            <input type="radio" name="importMode" value="replace" checked>
+            <span>Replace current assignments</span>
+          </label>
+          <label class="radio-opt">
+            <input type="radio" name="importMode" value="append">
+            <span>Append / merge by ID</span>
+          </label>
+        </div>
+        <p id="jsonErrorMsg" class="error-text hidden"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="jsonModal">Close</button>
+        <button type="submit" class="btn btn-primary">Apply JSON Array</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
